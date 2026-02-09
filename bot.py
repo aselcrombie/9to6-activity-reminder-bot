@@ -390,11 +390,12 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------- RESET ----------------
 
 async def reset_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print("RESET CALLBACK:", query.data)
     query = update.callback_query
     await query.answer()
 
     chat_id = query.message.chat_id
+
+    print("RESET CALLBACK:", query.data)
 
     if query.data == "confirm_reset":
         # удалить задачи пользователя
