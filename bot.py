@@ -390,6 +390,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------- RESET ----------------
 
 async def reset_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("RESET CALLBACK:", query.data)
     query = update.callback_query
     await query.answer()
 
@@ -400,14 +401,13 @@ async def reset_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for job in context.job_queue.get_jobs_by_name(str(chat_id)):
             job.schedule_removal()
 
+        users.pop(chat_id, None)
+
+
         # удалить статистику пользователя
         keys_to_delete = [key for key in daily_stats if key[0] == chat_id]
         for key in keys_to_delete:
             del daily_stats[key]
-
-        # удалить пользователя
-        if chat_id in users:
-            del users[chat_id]
 
         save_data()
 
