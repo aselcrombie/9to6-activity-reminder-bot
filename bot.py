@@ -389,6 +389,36 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ---------------- RESET ----------------
 
+async def reset_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    chat_id = query.message.chat_id
+
+    if query.data == "confirm_reset":
+        # удалить задачи пользователя
+        for job in context.job_queue.get_jobs_by_name(str(chat_id)):
+            job.schedule_removal()
+
+        # удалить статистику пользователя
+        keys_to_delete = [key for key in daily_stats if key[0] == chat_id]
+        for key in keys_to_delete:
+            del daily_stats[key]
+
+        # удалить пользователя
+        if chat_id in users:
+            del users[chat_id]
+
+        save_data()
+
+        await query.edit_message_text(
+            "✅ Настройки полностью сброшены.\n\n"
+            "Нажмите /start, чтобы настроить бота заново."
+        )
+
+    elif query.data == "cancel_reset":
+        await query.edit_message_text("🙂 Хорошо, настройки оставляем как есть.")
+
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
 
@@ -417,11 +447,15 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("settings", settings))
-    app.add_handler(CallbackQueryHandler(gender_handler, pattern="^gender_"))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("reset", reset))
+
+    # callback-и — строго по порядку
+    app.add_handler(CallbackQueryHandler(gender_handler, pattern="^gender_"))
+    app.add_handler(CallbackQueryHandler(reset_handler, pattern="^(confirm_reset|cancel_reset)$"))
+    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(done|later)$"))
+
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling()
 
