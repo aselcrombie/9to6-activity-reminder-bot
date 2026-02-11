@@ -116,10 +116,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Для начала выберите свой пол:",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
-
-    # если застрял на интервале
-    elif state == "waiting_interval":
-        await send_interval_keyboard(update.message)
+        return
 
     # если застрял на таймзоне
     elif state == "waiting_timezone":
@@ -140,8 +137,23 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users[chat_id]["state"] = "waiting_interval"
     await save_data()
 
-    await send_interval_keyboard(update.message)
-
+    keyboard = [
+        [
+            InlineKeyboardButton("30 мин", callback_data="interval_30"),
+            InlineKeyboardButton("45 мин", callback_data="interval_45"),
+            InlineKeyboardButton("60 мин", callback_data="interval_60"),
+        ],
+        [
+            InlineKeyboardButton(
+                "✏ Ввести свой (1–540)",
+                callback_data="interval_custom",
+            )
+        ],
+    ]
+    await update.message.reply_text(
+        "Выберите интервал напоминаний:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 # ---------------- ОБРАБОТКА ТЕКСТА ----------------
 
@@ -483,7 +495,11 @@ def main():
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("reset", reset))
 
-    app.add_handler(CallbackQueryHandler(gender_handler, pattern="^gender_"))
+    app.add_handler(
+        CallbackQueryHandler(gender_handler, pattern="^gender_"),
+        group=0,
+        block=True,
+    )
     app.add_handler(
     CallbackQueryHandler(interval_handler, pattern="^interval_")
     )
@@ -499,27 +515,7 @@ def main():
     # ВАЖНО — вызвать восстановление
     restore_jobs()
 
-    app.run_polling()
-
-async def send_interval_keyboard(message):
-    keyboard = [
-        [
-            InlineKeyboardButton("30 мин", callback_data="interval_30"),
-            InlineKeyboardButton("45 мин", callback_data="interval_45"),
-            InlineKeyboardButton("60 мин", callback_data="interval_60"),
-        ],
-        [
-            InlineKeyboardButton(
-                "✏ Ввести свой (1–540)",
-                callback_data="interval_custom",
-            )
-        ],
-    ]
-
-    await message.reply_text(
-        "Выберите интервал напоминаний:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
+    app.run_polling(drop_pending_updates=True)
 
 async def interval_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -552,6 +548,7 @@ async def interval_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def gender_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("GENDER HANDLER CALLED")
     query = update.callback_query
     await query.answer()
 
@@ -585,9 +582,7 @@ async def gender_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Выберите интервал напоминаний:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
-
-    await query.edit_message_text("Выберите интервал напоминаний:")
-    await send_interval_keyboard(query.message)
+    return
 
 if __name__ == "__main__":
     main()
