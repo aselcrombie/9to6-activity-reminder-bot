@@ -441,11 +441,11 @@ def main():
     load_data()
 
     from telegram.ext import JobQueue
-app = (
-   ApplicationBuilder()
-   .token(TOKEN)
-   .job_queue(JobQueue())
-   .build()
+    app = (
+       ApplicationBuilder()
+       .token(TOKEN)
+       .job_queue(JobQueue())
+       .build()
 )
 
     app.add_handler(CommandHandler("start", start))
