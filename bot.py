@@ -1,4 +1,5 @@
 import datetime
+import asyncio
 import json
 import os
 from collections import defaultdict
@@ -19,26 +20,34 @@ from telegram.ext import (
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-DATA_FILE = "data.json"
+DATA_FILE = os.getenv("DATA_FILE", "data.json")
 
 users = {}
 daily_stats = defaultdict(int)
 
+save_lock = asyncio.Lock()
 
 # ---------------- СОХРАНЕНИЕ ----------------
 
-def save_data():
-    data = {
-        "schema_version": 1,
-        "users": users,
-        "daily_stats": {
-            f"{chat_id}_{date}": count
-            for (chat_id, date), count in daily_stats.items()
-        },
-    }
+async def save_data():
+    async with save_lock:
+        data = {
+            "schema_version": 1,
+            "users": users,
+            "daily_stats": {
+                f"{chat_id}_{date}": count
+                for (chat_id, date), count in daily_stats.items()
+            },
+        }
 
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
+        temp_file = DATA_FILE + ".tmp"
+
+        with open(temp_file, "w") as f:
+            json.dump(data, f)
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.replace(temp_file, DATA_FILE)
 
 def load_data():
     global users, daily_stats
@@ -46,24 +55,30 @@ def load_data():
     if not os.path.exists(DATA_FILE):
         return
 
-    with open(DATA_FILE, "r") as f:
-        data = json.load(f)
+    try:
+        with open(DATA_FILE, "r") as f:
+            data = json.load(f)
+    except json.JSONDecodeError:
+        print("⚠️ Файл повреждён")
+        return
 
-    # Проверка версии схемы
+    # --- проверка версии схемы ---
     if data.get("schema_version") != 1:
         print("⚠️ Неизвестная версия схемы")
         return
 
-    # Загружаем пользователей
+    # --- восстановление users ---
     users_raw = data.get("users", {})
-    users = {int(k): v for k, v in users_raw.items()}
+    users.clear()
+    users.update({int(k): v for k, v in users_raw.items()})
 
-    # Загружаем статистику
+    # --- восстановление daily_stats ---
     daily_stats_raw = data.get("daily_stats", {})
+    daily_stats.clear()
+
     for key, count in daily_stats_raw.items():
         chat_id, date_str = key.split("_")
         daily_stats[(int(chat_id), datetime.date.fromisoformat(date_str))] = count
-
 
 # ---------------- START ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -72,7 +87,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # новый пользователь
     if chat_id not in users:
         users[chat_id] = {"state": "waiting_gender"}
-        save_data()
+        await save_data()
 
     # пользователь полностью настроен
     elif users[chat_id].get("state") == "active":
@@ -101,13 +116,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Для начала выберите свой пол:",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
-
-    # если застрял на интервале
-    elif state == "waiting_interval":
-        await update.message.reply_text(
-            "Продолжаем настройку 🙂\n"
-            "Введите интервал в минутах (1–540):"
-        )
+        return
 
     # если застрял на таймзоне
     elif state == "waiting_timezone":
@@ -126,10 +135,25 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     users[chat_id]["state"] = "waiting_interval"
-    save_data()
+    await save_data()
 
-    await update.message.reply_text("Введите новый интервал (1–540):")
-
+    keyboard = [
+        [
+            InlineKeyboardButton("30 мин", callback_data="interval_30"),
+            InlineKeyboardButton("45 мин", callback_data="interval_45"),
+            InlineKeyboardButton("60 мин", callback_data="interval_60"),
+        ],
+        [
+            InlineKeyboardButton(
+                "✏ Ввести свой (1–540)",
+                callback_data="interval_custom",
+            )
+        ],
+    ]
+    await update.message.reply_text(
+        "Выберите интервал напоминаний:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 # ---------------- ОБРАБОТКА ТЕКСТА ----------------
 
@@ -190,7 +214,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         users[chat_id]["interval"] = interval
         users[chat_id]["state"] = "waiting_timezone"
-        save_data()
+        await save_data()
 
         await update.message.reply_text(
             "Введите часовой пояс в формате +5 или -3"
@@ -219,7 +243,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         users[chat_id]["timezone_offset"] = offset
         users[chat_id]["state"] = "active"
-        save_data()
+        await save_data()
 
         interval = users[chat_id]["interval"]
 
@@ -318,7 +342,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # удалить пользователя
         del users[chat_id]
 
-        save_data()
+        await save_data()
 
         await query.edit_message_text(
             "Настройки полностью сброшены.\n"
@@ -342,7 +366,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "done":
         daily_stats[(chat_id, today)] += 1
-        save_data()
+        await save_data()
 
         count = daily_stats[(chat_id, today)]
 
@@ -408,7 +432,7 @@ async def reset_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
        keys_to_delete = [key for key in daily_stats if key[0] == chat_id]
        for key in keys_to_delete:
            del daily_stats[key]
-       save_data()
+       await save_data()
        await query.edit_message_text(
            "Настройки полностью сброшены.\n"
            "Запустите бота заново через /start"
@@ -471,7 +495,14 @@ def main():
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("reset", reset))
 
-    app.add_handler(CallbackQueryHandler(gender_handler, pattern="^gender_"))
+    app.add_handler(
+        CallbackQueryHandler(gender_handler, pattern="^gender_"),
+        group=0,
+        block=True,
+    )
+    app.add_handler(
+    CallbackQueryHandler(interval_handler, pattern="^interval_")
+    )
     app.add_handler(
         CallbackQueryHandler(reset_handler, pattern="^(confirm_reset|cancel_reset)$")
     )
@@ -484,22 +515,74 @@ def main():
     # ВАЖНО — вызвать восстановление
     restore_jobs()
 
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
+
+async def interval_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    chat_id = query.message.chat_id
+    user = users.get(chat_id)
+
+    if not user:
+        return
+
+    if query.data == "interval_custom":
+        user["state"] = "waiting_interval"
+        await save_data()
+
+        await query.edit_message_text(
+            "Введите интервал в минутах (1–540):"
+        )
+        return
+
+    # если выбрали 30/45/60
+    interval = int(query.data.split("_")[1])
+
+    user["interval"] = interval
+    user["state"] = "waiting_timezone"
+    await save_data()
+
+    await query.edit_message_text(
+        "Введите часовой пояс в формате +5 или -3"
+    )
 
 async def gender_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("GENDER HANDLER CALLED")
     query = update.callback_query
     await query.answer()
 
     chat_id = query.message.chat_id
 
+    if chat_id not in users:
+        users[chat_id] = {}
+
     users[chat_id]["gender"] = (
         "female" if query.data == "gender_female" else "male"
     )
     users[chat_id]["state"] = "waiting_interval"
-    save_data()
 
-    await query.edit_message_text("Введите интервал в минутах (1–540):")
+    await save_data()
 
+    keyboard = [
+        [
+            InlineKeyboardButton("30 мин", callback_data="interval_30"),
+            InlineKeyboardButton("45 мин", callback_data="interval_45"),
+            InlineKeyboardButton("60 мин", callback_data="interval_60"),
+        ],
+        [
+            InlineKeyboardButton(
+                "✏ Ввести свой (1–540)",
+                callback_data="interval_custom",
+            )
+        ],
+    ]
+
+    await query.edit_message_text(
+        "Выберите интервал напоминаний:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+    return
 
 if __name__ == "__main__":
     main()
