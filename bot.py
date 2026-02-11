@@ -498,7 +498,6 @@ def main():
     app.add_handler(
         CallbackQueryHandler(gender_handler, pattern="^gender_"),
         group=0,
-        block=True,
     )
     app.add_handler(
     CallbackQueryHandler(interval_handler, pattern="^interval_")
