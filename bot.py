@@ -398,24 +398,20 @@ async def reset_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print("RESET CALLBACK:", query.data)
 
     if query.data == "confirm_reset":
-        # удалить задачи пользователя
-        for job in context.job_queue.get_jobs_by_name(str(chat_id)):
-            job.schedule_removal()
-
-        users.pop(chat_id, None)
-
-
-        # удалить статистику пользователя
-        keys_to_delete = [key for key in daily_stats if key[0] == chat_id]
-        for key in keys_to_delete:
-            del daily_stats[key]
-
-        save_data()
-
-        await query.edit_message_text(
-            "✅ Настройки полностью сброшены.\n\n"
-            "Нажмите /start, чтобы настроить бота заново."
-        )
+       if context.job_queue:
+           for job in context.job_queue.get_jobs_by_name(str(chat_id)):
+           job.schedule_removal()
+           
+       users.pop(chat_id, None)
+       keys_to_delete = [key for key in daily_stats if key[0] == chat_id]
+       for key in keys_to_delete:
+           del daily_stats[key]
+       save_data()
+       await query.edit_message_text(
+           "Настройки полностью сброшены.\n"
+           "Запустите бота заново через /start"
+   )
+       return
 
     elif query.data == "cancel_reset":
         await query.edit_message_text("🙂 Хорошо, настройки оставляем как есть.")
