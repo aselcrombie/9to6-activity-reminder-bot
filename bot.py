@@ -242,8 +242,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Супер, начинаем в ближайший будний день — {next_weekday} 💪"
             )
 
-        for job in context.job_queue.get_jobs_by_name(str(chat_id)):
-            job.schedule_removal()
+        if context.job_queue:
+            for job in context.job_queue.get_jobs_by_name(str(chat_id)):
+                job.schedule_removal()
 
         context.job_queue.run_repeating(
             send_reminder,
@@ -303,8 +304,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "confirm_reset":
         # удалить задачи
-        for job in context.job_queue.get_jobs_by_name(str(chat_id)):
-            job.schedule_removal()
+        if context.job_queue:
+            for job in context.job_queue.get_jobs_by_name(str(chat_id)):
+                job.schedule_removal()
 
         # удалить статистику пользователя
         keys_to_delete = [
@@ -410,7 +412,7 @@ async def reset_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
        await query.edit_message_text(
            "Настройки полностью сброшены.\n"
            "Запустите бота заново через /start"
-   )
+       )
        return
 
     elif query.data == "cancel_reset":
@@ -441,27 +443,48 @@ def main():
     load_data()
 
     from telegram.ext import JobQueue
-    app = (
-       ApplicationBuilder()
-       .token(TOKEN)
-       .job_queue(JobQueue())
-       .build()
-)
 
+    app = (
+        ApplicationBuilder()
+        .token(TOKEN)
+        .job_queue(JobQueue())
+        .build()
+    )
+
+    # ---------- восстановление напоминаний после перезапуска ----------
+    def restore_jobs():
+        for chat_id, user in users.items():
+            if user.get("state") == "active":
+                interval = user.get("interval")
+                if interval:
+                    app.job_queue.run_repeating(
+                        send_reminder,
+                        interval=interval * 60,
+                        first=5,
+                        chat_id=chat_id,
+                        name=str(chat_id),
+                    )
+
+    # ---------- хендлеры ----------
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("settings", settings))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("reset", reset))
 
-    # callback-и — строго по порядку
     app.add_handler(CallbackQueryHandler(gender_handler, pattern="^gender_"))
-    app.add_handler(CallbackQueryHandler(reset_handler, pattern="^(confirm_reset|cancel_reset)$"))
-    app.add_handler(CallbackQueryHandler(button_handler, pattern="^(done|later)$"))
+    app.add_handler(
+        CallbackQueryHandler(reset_handler, pattern="^(confirm_reset|cancel_reset)$")
+    )
+    app.add_handler(
+        CallbackQueryHandler(button_handler, pattern="^(done|later)$")
+    )
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    app.run_polling()
+    # ВАЖНО — вызвать восстановление
+    restore_jobs()
 
+    app.run_polling()
 
 async def gender_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
