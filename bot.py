@@ -507,14 +507,18 @@ async def gender_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = query.message.chat_id
 
+    # 🔥 если пользователя нет — создаём
+    if chat_id not in users:
+        users[chat_id] = {}
+
     users[chat_id]["gender"] = (
         "female" if query.data == "gender_female" else "male"
     )
     users[chat_id]["state"] = "waiting_interval"
+
     await save_data()
 
     await query.edit_message_text("Введите интервал в минутах (1–540):")
-
 
 if __name__ == "__main__":
     main()
