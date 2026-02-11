@@ -119,10 +119,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # если застрял на интервале
     elif state == "waiting_interval":
-        await update.message.reply_text(
-            "Продолжаем настройку 🙂\n"
-            "Введите интервал в минутах (1–540):"
-        )
+        await send_interval_keyboard(update.message)
 
     # если застрял на таймзоне
     elif state == "waiting_timezone":
@@ -143,7 +140,7 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users[chat_id]["state"] = "waiting_interval"
     await save_data()
 
-    await update.message.reply_text("Введите новый интервал (1–540):")
+    await send_interval_keyboard(update.message)
 
 
 # ---------------- ОБРАБОТКА ТЕКСТА ----------------
@@ -488,6 +485,9 @@ def main():
 
     app.add_handler(CallbackQueryHandler(gender_handler, pattern="^gender_"))
     app.add_handler(
+    CallbackQueryHandler(interval_handler, pattern="^interval_")
+    )
+    app.add_handler(
         CallbackQueryHandler(reset_handler, pattern="^(confirm_reset|cancel_reset)$")
     )
     app.add_handler(
@@ -501,13 +501,62 @@ def main():
 
     app.run_polling()
 
+async def send_interval_keyboard(message):
+    keyboard = [
+        [
+            InlineKeyboardButton("30 мин", callback_data="interval_30"),
+            InlineKeyboardButton("45 мин", callback_data="interval_45"),
+            InlineKeyboardButton("60 мин", callback_data="interval_60"),
+        ],
+        [
+            InlineKeyboardButton(
+                "✏ Ввести свой (1–540)",
+                callback_data="interval_custom",
+            )
+        ],
+    ]
+
+    await message.reply_text(
+        "Выберите интервал напоминаний:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+async def interval_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    chat_id = query.message.chat_id
+    user = users.get(chat_id)
+
+    if not user:
+        return
+
+    if query.data == "interval_custom":
+        user["state"] = "waiting_interval"
+        await save_data()
+
+        await query.edit_message_text(
+            "Введите интервал в минутах (1–540):"
+        )
+        return
+
+    # если выбрали 30/45/60
+    interval = int(query.data.split("_")[1])
+
+    user["interval"] = interval
+    user["state"] = "waiting_timezone"
+    await save_data()
+
+    await query.edit_message_text(
+        "Введите часовой пояс в формате +5 или -3"
+    )
+
 async def gender_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     chat_id = query.message.chat_id
 
-    # 🔥 если пользователя нет — создаём
     if chat_id not in users:
         users[chat_id] = {}
 
@@ -518,7 +567,27 @@ async def gender_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await save_data()
 
-    await query.edit_message_text("Введите интервал в минутах (1–540):")
+    keyboard = [
+        [
+            InlineKeyboardButton("30 мин", callback_data="interval_30"),
+            InlineKeyboardButton("45 мин", callback_data="interval_45"),
+            InlineKeyboardButton("60 мин", callback_data="interval_60"),
+        ],
+        [
+            InlineKeyboardButton(
+                "✏ Ввести свой (1–540)",
+                callback_data="interval_custom",
+            )
+        ],
+    ]
+
+    await query.edit_message_text(
+        "Выберите интервал напоминаний:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+    await query.edit_message_text("Выберите интервал напоминаний:")
+    await send_interval_keyboard(query.message)
 
 if __name__ == "__main__":
     main()
