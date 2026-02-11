@@ -444,7 +444,13 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     load_data()
 
-    app = ApplicationBuilder().token(TOKEN).build()
+    from telegram.ext import JobQueue
+app = (
+   ApplicationBuilder()
+   .token(TOKEN)
+   .job_queue(JobQueue())
+   .build()
+)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("settings", settings))
