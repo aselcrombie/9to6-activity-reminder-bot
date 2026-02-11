@@ -400,7 +400,7 @@ async def reset_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "confirm_reset":
        if context.job_queue:
            for job in context.job_queue.get_jobs_by_name(str(chat_id)):
-           job.schedule_removal()
+               job.schedule_removal()
            
        users.pop(chat_id, None)
        keys_to_delete = [key for key in daily_stats if key[0] == chat_id]
